@@ -1,12 +1,33 @@
 {
   "name": "clair-gateway",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Transparent OpenAI-compatible proxy that compresses prompts via CLAIR Base before sending them to an LLM API. Drop-in replacement: the agent only changes base_url.",
   "type": "module",
   "engines": {
     "node": ">=20"
   },
   "main": "dist/main.js",
+  "files": [
+    "dist/",
+    "docs/",
+    "examples/",
+    "mocks/",
+    "docker/",
+    "docker-compose.yml",
+    ".env.example",
+    "README.md",
+    "REPORT.md",
+    "LICENSE"
+  ],
+  "prepublishOnly": "npm run build && npm test",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stregz22ru-droid/CLAIR-GATEWAY.git"
+  },
+  "bugs": {
+    "url": "https://github.com/stregz22ru-droid/CLAIR-GATEWAY/issues"
+  },
+  "homepage": "https://github.com/stregz22ru-droid/CLAIR-GATEWAY#readme",
   "scripts": {
     "build": "tsc",
     "prestart": "npm run build",
