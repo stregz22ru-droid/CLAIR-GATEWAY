@@ -18,6 +18,8 @@ export function makeConfig(overrides: Partial<Config> = {}): Config {
     logLevel: 'error',
     logFile: null,
     bodyLimitMb: 5,
+    cacheTtlMs: 300_000,
+    cacheMaxEntries: 500,
     ...overrides,
   };
 }

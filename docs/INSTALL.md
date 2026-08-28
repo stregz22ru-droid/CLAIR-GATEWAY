@@ -69,6 +69,8 @@ docker run -p 8080:8080 \
 | `COMPRESSION_MODE` | `medium` | `low` / `medium` / `high` — передаётся в CLAIR |
 | `COMPRESSION_ENABLED` | `true` | Глобальный A/B-выключатель |
 | `CLAIR_FAIL_STRATEGY` | `fail_open` | `fail_open` — идти в LLM без сжатия; `fail_closed` — 503 |
+| `CLAIR_CACHE_TTL_MS` | `300000` | Жизнь записи кэша промптов, мс; `0` — выключить кэш |
+| `CLAIR_CACHE_MAX_ENTRIES` | `500` | Максимум записей (LRU-вытеснение); `0` — выключить кэш |
 | `SESSION_NAME` | `clair-gateway` | Метка сессии: уходит в CLAIR и в JSONL-лог |
 | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` (stdout) |
 | `LOG_FILE` | `logs/gateway.jsonl` | JSONL-лог операций; `none` — отключить файл |

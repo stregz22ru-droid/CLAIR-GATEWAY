@@ -22,6 +22,26 @@ Gateway прозрачен: всё, что агент отправляет в Op
 
 Заголовок `X-Clair-Compress` никогда не передаётся в LLM.
 
+## Заголовки ответа
+
+| Заголовок | Значения | Смысл |
+|---|---|---|
+| `X-Clair-Cache` | `MISS` | Все тексты сжаты свежим вызовом CLAIR |
+| | `HIT` | Все тексты взяты из кэша промптов — CLAIR не вызывался |
+| | `PARTIAL` | Часть текстов из кэша, часть — свежие (напр. system-промпт закэширован, вопрос — новый) |
+| | `BYPASS` | Сжатие отключено (заголовком или конфигом) — мимо кэша |
+
+Заголовок `X-Clair-Cache` также не передаётся в LLM; он ставится на все ответы, дошедшие до стадии пересылки (на 503 `fail_closed` его нет).
+
+## Кэш промптов
+
+In-memory LRU-кэш перед CLAIR Base: ключ — SHA-256 точного текста, отправляемого в CLAIR; значение — сжатый текст и счётчики токенов (хит переигрывает ровно те же числа, что выдал бы CLAIR).
+
+- Кэшируется только успешное сжатие с реальной выгодой; no-gain результаты и отказы CLAIR (`fail_open`) не сохраняются — transient-сбой не может отравить кэш.
+- Один процесс = один кэш: рестарт или смена `COMPRESSION_MODE` начинает с чистого листа.
+- Настраивается `CLAIR_CACHE_TTL_MS` (по умолчанию 300 000 мс) и `CLAIR_CACHE_MAX_ENTRIES` (по умолчанию 500); `0` в любой из них выключает кэш целиком.
+- Наблюдаемость: `X-Clair-Cache` в каждом ответе и `cache_hits`/`cache_misses` в JSONL-логе (при выключенном кэше — всегда `0/0`).
+
 ## Пример запроса и ответа
 
 ```bash
@@ -67,6 +87,8 @@ curl -s http://localhost:8080/v1/chat/completions \
   "compressed_tokens": 650,
   "saved_tokens": 350,
   "compression_ratio": 1.54,
+  "cache_hits": 0,
+  "cache_misses": 1,
   "llm_response_tokens": 200,
   "latency_ms": 145,
   "status": 200,
@@ -87,7 +109,7 @@ curl -s http://localhost:8080/v1/chat/completions \
 | `validation_failed` | Запрос не прошёл валидацию (400) |
 | `upstream_unreachable` | LLM недоступен (502) |
 
-Источники чисел: `original_tokens`/`compressed_tokens` — счётчики CLAIR, если он их вернул, иначе эвристика; `llm_response_tokens` — `usage.completion_tokens` из ответа LLM (для стриминга — `null`).
+Источники чисел: `original_tokens`/`compressed_tokens` — счётчики CLAIR, если он их вернул, иначе эвристика (хит кэша возвращает сохранённые значения того же происхождения); `llm_response_tokens` — `usage.completion_tokens` из ответа LLM (для стриминга — `null`).
 
 ## Контракт CLAIR Base (что Gateway отправляет и ожидает)
 

@@ -20,10 +20,11 @@
 
 - **Drop-in совместимость**: `POST /v1/chat/completions` в формате OpenAI, ответы и ошибки — в формате OpenAI
 - **Автоматическое сжатие** промптов через `POST {CLAIR_BASE_URL}/compress`
+- **Кэш промптов** (LRU + TTL, in-memory): повторяющиеся тексты — прежде всего system-промпты в циклах агента — не дёргают CLAIR вовсе; `X-Clair-Cache: HIT|PARTIAL|MISS|BYPASS` в каждом ответе
 - **A/B на лету**: заголовок `X-Clair-Compress: false` отключает сжатие для одного запроса (и `true` — включает даже при выключенном env)
 - **SSE-стриминг** (`stream: true`) проксируется chunk-by-chunk, без буферизации
 - **Стратегия отказа**: `CLAIR_FAIL_STRATEGY=fail_open` (по умолчанию) / `fail_closed`
-- **JSONL-лог** каждой операции: `original_tokens`, `compressed_tokens`, `saved_tokens`, `compression_ratio`, `llm_response_tokens`, `latency_ms`
+- **JSONL-лог** каждой операции: `original_tokens`, `compressed_tokens`, `saved_tokens`, `compression_ratio`, `cache_hits`, `cache_misses`, `llm_response_tokens`, `latency_ms`
 - Работает с любым OpenAI-совместимым бэкендом: OpenAI, vLLM, Ollama, LM Studio
 - Адаптер к схеме CLAIR: автоопределение полей + `CLAIR_TEXT_FIELD`/`CLAIR_RESPONSE_FIELD` для тонкой настройки без изменения кода
 

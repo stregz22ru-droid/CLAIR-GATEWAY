@@ -40,6 +40,10 @@ export interface Config {
   logFile: string | null;
   /** Max accepted request body size, MB. */
   bodyLimitMb: number;
+  /** Prompt-cache entry lifetime, ms (0 disables the cache). */
+  cacheTtlMs: number;
+  /** Max prompt-cache entries; the least recently used one is evicted (0 disables). */
+  cacheMaxEntries: number;
 }
 
 /**
@@ -83,6 +87,15 @@ function num(env: NodeJS.ProcessEnv, key: string, fallback: number): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
     throw new Error(`Invalid ${key}: expected a number, got "${value}"`);
+  }
+  return parsed;
+}
+
+/** Non-negative number: 0 is meaningful ("disabled"), negatives are a config error. */
+function nonNegative(env: NodeJS.ProcessEnv, key: string, fallback: number): number {
+  const parsed = num(env, key, fallback);
+  if (parsed < 0) {
+    throw new Error(`Invalid ${key}: expected a non-negative number, got "${parsed}"`);
   }
   return parsed;
 }
@@ -136,5 +149,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     logLevel: enumValue(env, 'LOG_LEVEL', ['debug', 'info', 'warn', 'error'] as const, 'info'),
     logFile,
     bodyLimitMb: num(env, 'BODY_LIMIT_MB', 20),
+    cacheTtlMs: nonNegative(env, 'CLAIR_CACHE_TTL_MS', 300_000),
+    cacheMaxEntries: nonNegative(env, 'CLAIR_CACHE_MAX_ENTRIES', 500),
   };
 }

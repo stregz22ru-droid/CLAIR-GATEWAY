@@ -21,6 +21,9 @@ export interface OperationRecord {
   compressed_tokens: number;
   saved_tokens: number;
   compression_ratio: number;
+  /** Prompt-cache outcomes for this request (0/0 when the cache is disabled). */
+  cache_hits?: number;
+  cache_misses?: number;
   llm_response_tokens: number | null;
   latency_ms: number;
   status?: number;

@@ -6,10 +6,11 @@ import { loadConfig } from './config.js';
 import type { Config } from './config.js';
 import { Logger } from './logger.js';
 import { ClairClient } from './compressor.js';
+import { PromptCache } from './cache.js';
 import { createChatHandler, createPassthroughHandler } from './proxy.js';
 import { openAiError } from './errors.js';
 
-export const VERSION = '1.0.0';
+export const VERSION = '1.1.0';
 
 export interface BuildOptions {
   config?: Config;
@@ -24,6 +25,8 @@ export function buildApp(options: BuildOptions = {}): express.Express {
   const cfg = options.config ?? loadConfig();
   const log = options.logger ?? new Logger(cfg.logLevel, cfg.logFile);
   const clair = new ClairClient(cfg, log);
+  // One shared cache per app instance: disabled when either limit is zero.
+  const cache = cfg.cacheTtlMs > 0 && cfg.cacheMaxEntries > 0 ? new PromptCache(cfg.cacheTtlMs, cfg.cacheMaxEntries) : null;
 
   const app = express();
   app.disable('x-powered-by');
@@ -33,10 +36,10 @@ export function buildApp(options: BuildOptions = {}): express.Express {
     res.json({ status: 'ok', service: 'clair-gateway', version: VERSION });
   });
 
-  app.post('/v1/chat/completions', createChatHandler({ cfg, log, clair }));
+  app.post('/v1/chat/completions', createChatHandler({ cfg, log, clair, cache }));
 
   // Everything else under /v1/* is proxied without compression (models, …).
-  app.all('/v1/*', createPassthroughHandler({ cfg, log, clair }));
+  app.all('/v1/*', createPassthroughHandler({ cfg, log, clair, cache }));
 
   // Body-parser failures → OpenAI-style errors.
   app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
@@ -86,6 +89,9 @@ async function main(): Promise<void> {
       compression_enabled: cfg.compressionEnabled,
       compression_mode: cfg.compressionMode,
       fail_strategy: cfg.failStrategy,
+      cache_enabled: cfg.cacheTtlMs > 0 && cfg.cacheMaxEntries > 0,
+      cache_ttl_ms: cfg.cacheTtlMs,
+      cache_max_entries: cfg.cacheMaxEntries,
       session: cfg.sessionName,
       version: VERSION,
     });

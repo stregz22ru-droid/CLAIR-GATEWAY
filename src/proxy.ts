@@ -7,11 +7,14 @@ import type { Logger, OperationRecord } from './logger.js';
 import { openAiError } from './errors.js';
 import type { ClairClient } from './compressor.js';
 import { estimateTokens } from './tokens.js';
+import { PromptCache } from './cache.js';
 
 export interface ProxyDeps {
   cfg: Config;
   log: Logger;
   clair: ClairClient;
+  /** Shared prompt cache; null when disabled via config. */
+  cache: PromptCache | null;
 }
 
 /**
@@ -130,17 +133,70 @@ function validateChatRequest(body: unknown): ValidateOk | ValidateFail {
 interface CompressionStats {
   originalTokens: number;
   compressedTokens: number;
+  cacheHits: number;
+  cacheMisses: number;
   note: string | null;
+}
+
+interface TextCompressionOutcome {
+  /** Final text to use — compressed when it is shorter, original otherwise. */
+  text: string;
+}
+
+/**
+ * Compresses one text through the cache-then-CLAIR ladder:
+ * 1. cache hit  → replay the stored result, CLAIR is not called at all;
+ * 2. cache miss → call CLAIR; store the result only when it is actually
+ *    shorter than the original, so no-gain outcomes and (via the caller's
+ *    error path) transient failures never poison the cache.
+ * Token accounting is identical for hits and fresh compressions.
+ */
+async function compressText(
+  text: string,
+  clair: ClairClient,
+  cache: PromptCache | null,
+  stats: CompressionStats,
+  log: Logger,
+): Promise<TextCompressionOutcome> {
+  const key = cache ? PromptCache.keyFor(text) : '';
+  if (cache) {
+    const hit = cache.get(key);
+    if (hit) {
+      stats.originalTokens += hit.originalTokens;
+      stats.compressedTokens += hit.compressedTokens;
+      stats.cacheHits++;
+      log.debug('prompt cache hit', { key_prefix: key.slice(0, 12) });
+      return { text: hit.text };
+    }
+    stats.cacheMisses++;
+  }
+  const result = await clair.compress(text);
+  stats.originalTokens += result.originalTokens;
+  if (result.text.length < text.length) {
+    stats.compressedTokens += result.compressedTokens;
+    cache?.set(key, {
+      text: result.text,
+      originalTokens: result.originalTokens,
+      compressedTokens: result.compressedTokens,
+    });
+    return { text: result.text };
+  }
+  // Degradation guard: never let compression make the prompt longer.
+  stats.compressedTokens += result.originalTokens;
+  log.debug('compression skipped: CLAIR output is not shorter than the original');
+  return { text };
 }
 
 /**
  * Compresses every text-bearing message through CLAIR Base (one call per text
  * part, so multimodal content keeps its structure). Token counters accumulate
  * per part: CLAIR-reported numbers when available, estimates otherwise.
+ * Every distinct text goes through the prompt cache first.
  */
 async function compressMessages(
   messages: ChatMessage[],
   clair: ClairClient,
+  cache: PromptCache | null,
   stats: CompressionStats,
   log: Logger,
 ): Promise<ChatMessage[]> {
@@ -151,32 +207,16 @@ async function compressMessages(
         out.push(message);
         continue;
       }
-      const result = await clair.compress(message.content);
-      stats.originalTokens += result.originalTokens;
-      if (result.text.length < message.content.length) {
-        stats.compressedTokens += result.compressedTokens;
-        out.push({ ...message, content: result.text });
-      } else {
-        // Degradation guard: never let compression make the prompt longer.
-        stats.compressedTokens += result.originalTokens;
-        out.push(message);
-        log.debug('compression skipped: CLAIR output is not shorter than the original');
-      }
+      const outcome = await compressText(message.content, clair, cache, stats, log);
+      out.push({ ...message, content: outcome.text });
       continue;
     }
     if (Array.isArray(message.content)) {
       const parts: ContentPart[] = [];
       for (const part of message.content) {
         if (part.type === 'text' && typeof part.text === 'string' && part.text !== '') {
-          const result = await clair.compress(part.text);
-          stats.originalTokens += result.originalTokens;
-          if (result.text.length < part.text.length) {
-            stats.compressedTokens += result.compressedTokens;
-            parts.push({ ...part, text: result.text });
-          } else {
-            stats.compressedTokens += result.originalTokens;
-            parts.push(part);
-          }
+          const outcome = await compressText(part.text, clair, cache, stats, log);
+          parts.push({ ...part, text: outcome.text });
         } else {
           // Non-text parts (images, files, …) pass through untouched.
           parts.push(part);
@@ -253,6 +293,8 @@ function logOperation(ctx: CompletionContext): void {
     compressed_tokens: compressedTokens,
     saved_tokens: Math.max(0, originalTokens - compressedTokens),
     compression_ratio: compressedTokens > 0 ? Number((originalTokens / compressedTokens).toFixed(2)) : 1,
+    cache_hits: ctx.stats.cacheHits,
+    cache_misses: ctx.stats.cacheMisses,
     llm_response_tokens: ctx.llmResponseTokens,
     latency_ms: Date.now() - ctx.startedAt,
     status: ctx.status,
@@ -275,7 +317,7 @@ export function createChatHandler(deps: ProxyDeps): (req: Request, res: ExpressR
       model: 'unknown',
       stream: false,
       compressionEnabled: false,
-      stats: { originalTokens: 0, compressedTokens: 0, note: null },
+      stats: { originalTokens: 0, compressedTokens: 0, cacheHits: 0, cacheMisses: 0, note: null },
       status: 500,
       llmResponseTokens: null,
       logged: false,
@@ -309,7 +351,7 @@ export function createChatHandler(deps: ProxyDeps): (req: Request, res: ExpressR
         ctx.stats.compressedTokens = estimate;
       } else {
         try {
-          messages = await compressMessages(messages, deps.clair, ctx.stats, deps.log);
+          messages = await compressMessages(messages, deps.clair, deps.cache, ctx.stats, deps.log);
           if (ctx.stats.compressedTokens >= ctx.stats.originalTokens) {
             ctx.stats.note = 'compression_no_gain';
           }
@@ -337,6 +379,17 @@ export function createChatHandler(deps: ProxyDeps): (req: Request, res: ExpressR
           ctx.stats.compressedTokens = estimate;
         }
       }
+
+      // --- Cache observability: did this request reuse cached compressions? ---
+      const cacheHeader =
+        !enabled
+          ? 'BYPASS'
+          : ctx.stats.cacheHits === 0
+            ? 'MISS'
+            : ctx.stats.cacheMisses === 0
+              ? 'HIT'
+              : 'PARTIAL';
+      res.setHeader('x-clair-cache', cacheHeader);
 
       // --- Forward to the upstream LLM ---
       const url = buildUpstreamUrl(req.originalUrl, deps.cfg.llmProviderUrl);
