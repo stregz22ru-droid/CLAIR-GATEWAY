@@ -1,0 +1,57 @@
+# ── CLAIR Gateway demo stack ─────────────────────────────────────────────────
+# One command, zero external services and zero API keys:
+#
+#   docker compose up --build
+#
+# Brings up:
+#   * clair-gateway  → http://localhost:8080   (the deliverable)
+#   * clair-mock     → :3000  (fake CLAIR Base, POST /compress)
+#   * llm-mock       → :4000  (fake OpenAI-compatible LLM)
+#
+# Then try:
+#   curl -s http://localhost:8080/v1/chat/completions \
+#     -H 'content-type: application/json' \
+#     -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Explain reverse proxies"}]}'
+#
+#   docker compose exec clair-gateway cat /app/logs/gateway.jsonl   # JSONL operation log
+
+services:
+  clair-gateway:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    ports:
+      - '8080:8080'
+    environment:
+      PORT: '8080'
+      CLAIR_BASE_URL: http://clair-mock:3000
+      LLM_PROVIDER_URL: http://llm-mock:4000
+      LLM_API_KEY: sk-demo-not-a-real-key
+      COMPRESSION_MODE: medium
+      COMPRESSION_ENABLED: 'true'
+      CLAIR_FAIL_STRATEGY: fail_open
+      SESSION_NAME: docker-demo
+      LOG_LEVEL: info
+      LOG_FILE: logs/gateway.jsonl
+    depends_on:
+      - clair-mock
+      - llm-mock
+    restart: unless-stopped
+
+  clair-mock:
+    image: node:20-alpine
+    working_dir: /mocks
+    volumes:
+      - ./mocks:/mocks:ro
+    command: node clair-mock.mjs
+    expose:
+      - '3000'
+
+  llm-mock:
+    image: node:20-alpine
+    working_dir: /mocks
+    volumes:
+      - ./mocks:/mocks:ro
+    command: node llm-mock.mjs
+    expose:
+      - '4000'

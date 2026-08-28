@@ -1,0 +1,42 @@
+{
+  "name": "clair-gateway",
+  "version": "1.0.0",
+  "description": "Transparent OpenAI-compatible proxy that compresses prompts via CLAIR Base before sending them to an LLM API. Drop-in replacement: the agent only changes base_url.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "prestart": "npm run build",
+    "start": "node dist/main.js",
+    "dev": "tsx watch src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "mock:clair": "node mocks/clair-mock.mjs",
+    "mock:llm": "node mocks/llm-mock.mjs"
+  },
+  "keywords": [
+    "proxy",
+    "openai",
+    "prompt-compression",
+    "llm",
+    "gateway",
+    "clair"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.10",
+    "@types/supertest": "^6.0.2",
+    "supertest": "^7.0.0",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}
