@@ -1,0 +1,43 @@
+name: CI
+
+# CLAIR Gateway — прокси-сжатие промптов.
+#
+# Юнит-тесты написаны на in-memory моках (memory-logger,
+# supertest) без реальных портов и внешних сервисов — потому матрица
+# [ubuntu-latest, windows-latest] безопасна и проверяет сборку
+# TypeScript на обеих целевых ОС.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · node 20
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build (dist)
+        run: npm run build
+
+      - name: Unit tests (vitest)
+        run: npm test

@@ -1,5 +1,9 @@
 # CLAIR Gateway
 
+[![CI](https://github.com/stregz22ru-droid/CLAIR-GATEWAY/actions/workflows/ci.yml/badge.svg)](https://github.com/stregz22ru-droid/CLAIR-GATEWAY/actions/workflows/ci.yml)
+[![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)](https://nodejs.org)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
+
 Прозрачный OpenAI-совместимый прокси, который **автоматически сжимает промпты через CLAIR Base** перед отправкой в LLM. Для агента это обычный OpenAI API — меняется только `base_url`.
 
 ```text
